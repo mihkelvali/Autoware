@@ -218,6 +218,7 @@ static void projection_callback(const autoware_msgs::projection_matrix &msg) {
 }
 
 static void camera_info_callback(const sensor_msgs::CameraInfo &msg) {
+  if (msg.D.size() == 0) return;
   double fkx = msg.K[0 * 3 + 0]; // get K[0][0]
   double fky = msg.K[1 * 3 + 1]; // get K[1][1]
   double Ox = msg.K[0 * 3 + 2];  // get K[0][2]

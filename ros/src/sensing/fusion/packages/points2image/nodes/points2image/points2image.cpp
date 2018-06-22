@@ -64,6 +64,7 @@ static void intrinsic_callback(const sensor_msgs::CameraInfo& msg)
 	imageSize.height = msg.height;
 	imageSize.width = msg.width;
 
+	if (msg.D.size() == 0) return;
 	cameraMat = cv::Mat(3,3, CV_64F);
 	for (int row=0; row<3; row++) {
 		for (int col=0; col<3; col++) {
