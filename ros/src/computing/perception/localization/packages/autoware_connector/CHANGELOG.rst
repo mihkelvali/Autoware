@@ -2,8 +2,47 @@
 Changelog for package autoware_connector
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.6.3 (2018-03-06)
+------------------
+
+1.6.2 (2018-02-27)
+------------------
+* Update CHANGELOG
+* Contributors: Yusuke FUJII
+
+1.6.1 (2018-01-20)
+------------------
+* update CHANGELOG
+* Contributors: Yusuke FUJII
+
+1.6.0 (2017-12-11)
+------------------
+* Prepare release for 1.6.0
+* perfect the code. same commit with `#920 <https://github.com/cpfl/autoware/issues/920>`_.
+  remove duplicate "if" assert.
+  if v_info\_.is_stored == false,  tw.twist.angular.z is not set value or previous value, it is abnormal, and later in convertSteeringAngleToAngularVelocity( ) function, it also need to assert v_info\_.is_stored is true or not, duplicate assert.
+* Contributors: Yamato ANDO, asimay
+
+1.5.1 (2017-09-25)
+------------------
+* Release/1.5.1 (`#816 <https://github.com/cpfl/autoware/issues/816>`_)
+  * fix a build error by gcc version
+  * fix build error for older indigo version
+  * update changelog for v1.5.1
+  * 1.5.1
+* Contributors: Yusuke FUJII
+
+1.5.0 (2017-09-21)
+------------------
+* Update changelog
+* autoware_connector deps fixed
+* Contributors: Dejan Pangercic, Yusuke FUJII
+
 1.4.0 (2017-08-04)
 ------------------
+* version number must equal current release number so we can start releasing in the future
+* added changelogs
+* Contributors: Dejan Pangercic
 
 1.3.1 (2017-07-16)
 ------------------

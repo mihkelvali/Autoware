@@ -607,7 +607,7 @@ void segmentByDistance(const pcl::PointCloud<pcl::PointXYZ>::Ptr in_cloud_ptr,
 				}
 				else
 				{
-					ROS_INFO("vectormap_filtering: VectorMap Server Call failed. Make sure vectormap_server is running. No filtering performed.");
+					ROS_WARN_ONCE("vectormap_filtering: VectorMap Server Call failed. Make sure vectormap_server is running. No filtering performed.");
 					final_clusters[i]->SetValidity(true);
 				}
 			}
@@ -918,7 +918,7 @@ void velodyne_callback(const sensor_msgs::PointCloud2ConstPtr& in_sensor_cloud)
 	}
 	_end = std::chrono::system_clock::now();  // 計測終了時間
   double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(_end-_start).count(); //処理に要した時間をミリ秒に変換
-  ROS_INFO("Euclidean Clustering : %f", elapsed);
+  //ROS_INFO("Euclidean Clustering : %f", elapsed);
 }
 
 /*

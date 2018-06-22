@@ -29,8 +29,6 @@
 #include "dp_planner_core.h"
 
 #include <visualization_msgs/MarkerArray.h>
-#include "geo_pos_conv.hh"
-
 
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/io/io.h>
@@ -70,9 +68,10 @@ PlannerX::PlannerX()
 	bKmlMapLoaded = false;
 	m_bEnableTracking = true;
 	m_ObstacleTracking.m_MAX_ASSOCIATION_DISTANCE = 2.0;
-	m_ObstacleTracking.m_MAX_TRACKS_AFTER_LOSING = 5;
-	m_ObstacleTracking.m_DT = 0.12;
+	m_ObstacleTracking.m_dt = 0.12;
 	m_ObstacleTracking.m_bUseCenterOnly = true;
+
+	enablePlannerDynamicSwitch = false;
 
 
 	int iSource = 0;
@@ -95,9 +94,17 @@ PlannerX::PlannerX()
 	m_OriginPos.position.z  = transform.getOrigin().z();
 
 
-	pub_LocalPath = nh.advertise<autoware_msgs::lane>("final_waypoints", 100,true);
-	pub_LocalBasePath = nh.advertise<autoware_msgs::lane>("base_waypoints", 100,true);
-	pub_ClosestIndex = nh.advertise<std_msgs::Int32>("closest_waypoint", 100,true);
+	std::string topic_prefix;
+	nh.getParam("/dp_planner/enablePlannerDynamicSwitch", enablePlannerDynamicSwitch);
+	if(enablePlannerDynamicSwitch){
+		topic_prefix = "/dp";
+		pub_LocalTrajectoriesRviz_dynamic = nh.advertise<visualization_msgs::MarkerArray>("local_trajectories_dynamic", 1);
+		pub_EnableLattice = nh.advertise<std_msgs::Int32>("enableLattice", 1);
+	}
+
+	pub_LocalPath = nh.advertise<autoware_msgs::lane>(topic_prefix + "/final_waypoints", 100,true);
+	pub_LocalBasePath = nh.advertise<autoware_msgs::lane>(topic_prefix + "/base_waypoints", 100,true);
+	pub_ClosestIndex = nh.advertise<std_msgs::Int32>(topic_prefix + "/closest_waypoint", 100,true);
 
 	pub_BehaviorState = nh.advertise<geometry_msgs::TwistStamped>("current_behavior", 1);
 	pub_GlobalPlanNodes = nh.advertise<geometry_msgs::PoseArray>("global_plan_nodes", 1);
@@ -109,6 +116,7 @@ PlannerX::PlannerX()
 	pub_DetectedPolygonsRviz = nh.advertise<visualization_msgs::MarkerArray>("detected_polygons", 1, true);
 	pub_TrackedObstaclesRviz = nh.advertise<jsk_recognition_msgs::BoundingBoxArray>("dp_planner_tracked_boxes", 1);
 	pub_LocalTrajectoriesRviz = nh.advertise<visualization_msgs::MarkerArray>("local_trajectories", 1);
+	
 	pub_TestLineRviz	= nh.advertise<visualization_msgs::MarkerArray>("testing_line", 1);
 	pub_BehaviorStateRviz = nh.advertise<visualization_msgs::Marker>("behavior_state", 1);
 	pub_SafetyBorderRviz  = nh.advertise<visualization_msgs::Marker>("safety_border", 1);
@@ -410,6 +418,7 @@ void PlannerX::UpdatePlanningParams()
 	nh.getParam("/dp_planner/enableObjectTracking", m_bEnableTracking);
 	nh.getParam("/dp_planner/enableOutsideControl", m_bEnableOutsideControl);
 
+
 	PlannerHNS::ControllerParams controlParams;
 	controlParams.Steering_Gain = PlannerHNS::PID_CONST(0.07, 0.02, 0.01);
 	controlParams.Velocity_Gain = PlannerHNS::PID_CONST(0.1, 0.005, 0.1);
@@ -429,6 +438,7 @@ void PlannerX::UpdatePlanningParams()
 	m_LocalPlanner.m_SimulationSteeringDelayFactor = controlParams.SimulationSteeringDelay;
 	m_LocalPlanner.Init(controlParams, params, vehicleInfo);
 	m_LocalPlanner.m_pCurrentBehaviorState->m_Behavior = PlannerHNS::INITIAL_STATE;
+
 }
 
 void PlannerX::callbackGetInitPose(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg)
@@ -758,7 +768,7 @@ void PlannerX::callbackGetWayPlannerPath(const autoware_msgs::LaneArrayConstPtr&
 	if(msg->lanes.size() > 0)
 	{
 		m_WayPlannerPaths.clear();
-		bool bOldGlobalPath = m_LocalPlanner.m_TotalPath.size() == msg->lanes.size();
+		bool bOldGlobalPath = m_LocalPlanner.m_TotalOriginalPath.size() == msg->lanes.size();
 		for(unsigned int i = 0 ; i < msg->lanes.size(); i++)
 		{
 			std::vector<PlannerHNS::WayPoint> path;
@@ -838,7 +848,7 @@ void PlannerX::callbackGetWayPlannerPath(const autoware_msgs::LaneArrayConstPtr&
 
 			if(bOldGlobalPath)
 			{
-				bOldGlobalPath = PlannerHNS::PlanningHelpers::CompareTrajectories(path, m_LocalPlanner.m_TotalPath.at(i));
+				bOldGlobalPath = PlannerHNS::PlanningHelpers::CompareTrajectories(path, m_LocalPlanner.m_TotalOriginalPath.at(i));
 			}
 		}
 
@@ -848,7 +858,7 @@ void PlannerX::callbackGetWayPlannerPath(const autoware_msgs::LaneArrayConstPtr&
 			bWayPlannerPath = true;
 			m_LocalPlanner.m_pCurrentBehaviorState->GetCalcParams()->bNewGlobalPath = true;
 			//m_CurrentGoal = m_WayPlannerPaths.at(0).at(m_WayPlannerPaths.at(0).size()-1);
-			m_LocalPlanner.m_TotalPath = m_WayPlannerPaths;
+			m_LocalPlanner.m_TotalOriginalPath = m_WayPlannerPaths;
 
 			cout << "Global Lanes Size = " << msg->lanes.size() <<", Conv Size= " << m_WayPlannerPaths.size() << ", First Lane Size: " << m_WayPlannerPaths.at(0).size() << endl;
 
@@ -902,7 +912,8 @@ void PlannerX::PlannerMainLoop()
 			 }
 		}
 
-		if(bInitPos && m_LocalPlanner.m_TotalPath.size()>0)
+		int iDirection = 0;
+		if(bInitPos && m_LocalPlanner.m_TotalOriginalPath.size()>0)
 		{
 //			bool bMakeNewPlan = false;
 //			double drift = hypot(m_LocalPlanner.state.pos.y-m_CurrentPos.pos.y, m_LocalPlanner.state .pos.x-m_CurrentPos.pos.x);
@@ -915,11 +926,11 @@ void PlannerX::PlannerMainLoop()
 			double dt  = UtilityHNS::UtilityH::GetTimeDiffNow(m_PlanningTimer);
 			UtilityHNS::UtilityH::GetTickCount(m_PlanningTimer);
 
-			m_CurrentBehavior = m_LocalPlanner.DoOneStep(dt, m_VehicleState, m_TrackedClusters, 1, m_Map, m_bEmergencyStop, m_bGreenLight, true);
+			std::vector<PlannerHNS::TrafficLight> trafficLight;
+			m_CurrentBehavior = m_LocalPlanner.DoOneStep(dt, m_VehicleState, m_TrackedClusters, 1, m_Map, m_bEmergencyStop, trafficLight, true);
 
 			visualization_msgs::Marker behavior_rviz;
 
-			int iDirection = 0;
 			if(m_LocalPlanner.m_pCurrentBehaviorState->GetCalcParams()->iCurrSafeTrajectory > m_LocalPlanner.m_pCurrentBehaviorState->GetCalcParams()->iCentralTrajectory)
 				iDirection = 1;
 			else if(m_LocalPlanner.m_pCurrentBehaviorState->GetCalcParams()->iCurrSafeTrajectory < m_LocalPlanner.m_pCurrentBehaviorState->GetCalcParams()->iCentralTrajectory)
@@ -1036,8 +1047,38 @@ void PlannerX::PlannerMainLoop()
 		pub_LocalBasePath.publish(current_trajectory);
 		pub_LocalPath.publish(current_trajectory);
 		visualization_msgs::MarkerArray all_rollOuts;
+
+	
 		RosHelpers::ConvertFromPlannerHToAutowareVisualizePathFormat(m_LocalPlanner.m_Path, m_LocalPlanner.m_RollOuts, m_LocalPlanner, all_rollOuts);
 		pub_LocalTrajectoriesRviz.publish(all_rollOuts);
+
+		//Publish markers that visualize only when avoiding objects
+		if(enablePlannerDynamicSwitch){
+			visualization_msgs::MarkerArray all_rollOuts_dynamic;
+			std_msgs::Int32 enableLattice;
+			if(iDirection != 0) { // if obstacle avoidance state,
+				all_rollOuts_dynamic = all_rollOuts;
+		   		
+			     	for(auto &ro : all_rollOuts_dynamic.markers){
+					ro.ns = "global_lane_array_marker_dynamic";
+				}
+				pub_LocalTrajectoriesRviz_dynamic.publish(all_rollOuts_dynamic);
+				enableLattice.data = 1;
+			}else{
+				visualization_msgs::Marker delMarker;
+#ifndef ROS_KINETIC
+				delMarker.action = visualization_msgs::Marker::DELETE;
+#else
+				delMarker.action = visualization_msgs::Marker::DELETEALL;
+#endif
+				delMarker.ns = "global_lane_array_marker_dynamic";
+				all_rollOuts_dynamic.markers.push_back(delMarker);
+				pub_LocalTrajectoriesRviz_dynamic.publish(all_rollOuts_dynamic);
+				enableLattice.data = 0;
+			}
+			pub_EnableLattice.publish(enableLattice); //Publish flag of object avoidance
+		}
+
 
 		if(m_CurrentBehavior.bNewPlan)
 		{
@@ -1048,7 +1089,6 @@ void PlannerX::PlannerMainLoop()
 			str_out << "LocalPath_";
 			PlannerHNS::PlanningHelpers::WritePathToFile(str_out.str(), m_LocalPlanner.m_Path);
 		}
-
 
 
 		//Traffic Light Simulation Part
